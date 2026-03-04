@@ -81,7 +81,7 @@ export MQTT_HMAC_KEY=...            # must match publisher
 export INFLUX_URL=http://127.0.0.1:8086
 export INFLUX_ORG=ECE496
 export INFLUX_BUCKET=capstone
-export INFLUX_TOKEN=...             # write token
+export INFLUX_TOKEN=Iu8HJpcELmA79_rBrIPFmCsD6hHb6KzrMDrRiGlq5A6UbTZqVVZBNY2gFvtWpyMw800o4fwz3QdsL_uz8jSeSg==             # write token
 python3 mqtt_to_influx.py
 ```
 
