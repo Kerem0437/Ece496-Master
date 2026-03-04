@@ -1,0 +1,17 @@
+# Python
+**/__pycache__/
+*.pyc
+.venv/
+venv/
+ml-pipeline/artifacts/
+ml-pipeline/**/.pytest_cache/
+
+# Node / Next
+dashboard/node_modules/
+dashboard/.next/
+dashboard/.env
+npm-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store

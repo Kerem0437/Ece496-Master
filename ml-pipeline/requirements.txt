@@ -1,0 +1,7 @@
+influxdb-client==1.44.0
+paho-mqtt==1.6.1
+numpy==1.26.4
+pandas==2.2.2
+python-dotenv==1.0.1
+torch==2.2.2
+tqdm==4.66.4
