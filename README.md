@@ -146,3 +146,55 @@ The LSTM itself is run via:
 - `python -m ml.infer_batch --write`
 which computes `anomaly_score` + `ml_flag` and writes results into Influx for the dashboard to display.
 
+## One-file DEMO (for the team meeting / Morteza)
+
+This repo includes a **single Python file** that you can run to generate a full **HTML demo report** (no Influx required):
+
+```bash
+cd demo
+python3 demo_onefile.py --data-dir data --out demo_report.html
+```
+
+It will produce `demo_report.html` containing:
+- dataset summaries (tap, rb, fertilizer, 10hr mb + UV features)
+- LSTM training stats + timings
+- anomaly scores + flags per dataset
+- quantitative accuracy (F1/precision/recall) using **injected bad-data faults**
+- plots (pH + turbidity_voltage_V + reconstruction overlay)
+
+### Why this demo matches our team decisions
+- We **do NOT** label “contaminated water” as bad by default.
+- The model is for **bad data / sensor faults** (spike, dropout, flatline).
+- Turbidity NTU calibration is ignored; we use **turbidity_voltage_V**.
+
+## Vercel build fix (important)
+The dashboard now defaults to `DATA_MODE=mock` and lazy-loads Influx code only when `DATA_MODE=influx`.
+This prevents Vercel builds from failing when `INFLUX_QUERY_TOKEN` is not set.
+
+## Dashboard demo mode (JSON, no Influx)
+
+If you want to demo the **real-looking experiments + ML flags** inside the dashboard **without touching Influx**, use:
+
+1) In `dashboard/`, set:
+```bash
+DATA_MODE=demojson
+```
+
+2) Run the dashboard:
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+The dashboard will read local files from:
+- `dashboard/demo-json/experiments.json`
+- `dashboard/demo-json/measurements/<experiment_id>.json`
+
+Included demo experiments:
+- `EXP-DEMO-TAP-20260315-CLEAN`
+- `EXP-DEMO-TAP-20260315-FAULT` (fault-injected → shows **SUSPICIOUS**)
+- `EXP-DEMO-RB-20260314-CLEAN`
+- `EXP-DEMO-FERT-20260315-CLEAN`
+- `EXP-DEMO-MB-20260316-CLEAN`
+
