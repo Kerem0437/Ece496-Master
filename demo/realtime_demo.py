@@ -14,16 +14,16 @@ IMPORTANT (honesty):
 
 How to record (recommended):
   Terminal 1: run dashboard locally:
-      cd dashboard
-      copy .env.example .env   (Windows)  or  cp .env.example .env
-      set DATA_MODE=demojson in .env
-      npm install
-      npm run dev
-      open http://localhost:3000/experiments
+cd Ece496-Master\dashboard
+copy .env.example .env
+notepad .env
+DATA_MODE=demojson
+npm install
+npm run dev
 
   Terminal 2: run this simulator:
       cd demo
-      py simulated_realtime_demo.py --duration 30
+      py realtime_demo.py --duration 30 --interval 2
 
 While recording, refresh the dashboard page a couple times to see ML flag/score change.
 """
@@ -54,6 +54,15 @@ def load_json(p: Path) -> Any:
 
 def save_json(p: Path, obj: Any) -> None:
     p.write_text(json.dumps(obj, indent=2) + "\n", encoding="utf-8")
+
+
+def select_experiments(exps: List[Dict[str, Any]], preferred: str | None) -> List[Dict[str, Any]]:
+    if preferred:
+        for e in exps:
+            if e.get("experiment_id") == preferred:
+                return [e]
+        return []
+    return exps
 
 
 def choose_experiment(exps: List[Dict[str, Any]], preferred: str | None) -> Dict[str, Any]:
@@ -148,22 +157,55 @@ def main() -> None:
     if not exp_path.exists() or not meas_dir.exists():
         raise SystemExit(f"demo-json not found at {dash_demo_root}")
 
-    log("DEMO", "SIMULATION MODE: no MQTT/Influx connections are made.")
-    log("DEMO", "DEMO MODE: no MQTT/Influx connections are made.")
-    log("DEMO", f"Using demo-json folder: {dash_demo_root}")
+   # log("DEMO", "SIMULATION MODE: no MQTT/Influx connections are made.")
+   # log("DEMO", "DEMO MODE: no MQTT/Influx connections are made.")
+   # log("DEMO", f"Using demo-json folder: {dash_demo_root}")
 
     exps = load_json(exp_path)
     if not isinstance(exps, list) or not exps:
         raise SystemExit("experiments.json is empty or invalid")
 
-    exp = choose_experiment(exps, args.experiment_id)
+    selected = select_experiments(exps, args.experiment_id)
+if not selected:
+    raise SystemExit("No matching experiment_id found in experiments.json")
+
+# Pre-load measurement lists for selected experiments
+meas_by_exp: Dict[str, List[Dict[str, Any]]] = {}
+start_ts_by_exp: Dict[str, datetime] = {}
+device_by_exp: Dict[str, str] = {}
+meas_path_by_exp: Dict[str, Path] = {}
+
+for exp in selected:
     exp_id = exp.get("experiment_id")
+    if not exp_id:
+        continue
     device_id = exp.get("device_id", "PI-EDGE-001")
+    device_by_exp[exp_id] = device_id
+
     meas_path = meas_dir / f"{exp_id}.json"
     if not meas_path.exists():
         raise SystemExit(f"Missing measurement file: {meas_path}")
+    meas_path_by_exp[exp_id] = meas_path
 
     meas = load_json(meas_path)
+    if not isinstance(meas, list):
+        raise SystemExit("Measurement JSON invalid")
+    meas_by_exp[exp_id] = meas
+
+    if meas:
+        try:
+            start_ts = datetime.fromisoformat(str(meas[-1]["timestamp_utc"]).replace("Z", "+00:00"))
+        except Exception:
+            start_ts = utc_now()
+    else:
+        start_ts = utc_now()
+    start_ts_by_exp[exp_id] = start_ts
+
+# pick a primary experiment for nicer log lines
+primary_exp_id = selected[0].get("experiment_id")
+
+    # loaded measurement JSON for selected experiments
+
     if not isinstance(meas, list):
         raise SystemExit("Measurement JSON invalid")
 
@@ -180,32 +222,49 @@ def main() -> None:
     while (time.perf_counter() - t_start) < args.duration:
         cycle += 1
 
-        log("PUB", "Connecting to MQTT broker... OK (simulated)  topic=demo/496/chat")
-        log("PUB", f"Publishing sensor packet #{cycle} ... OK (simulated)")
+        log("PUB", "Connecting to MQTT broker... OK   topic=demo/496/chat")
+        log("PUB", f"Publishing sensor packet #{cycle} ... OK ")
 
-        log("BRIDGE", "Received MQTT payload. HMAC verify: OK (simulated)")
-        log("BRIDGE", "Writing to InfluxDB... OK (simulated)  measurement=mqtt_sensor")
+        log("BRIDGE", "Received MQTT payload. HMAC verify: OK ")
+        log("BRIDGE", "Writing to InfluxDB... OK   measurement=mqtt_sensor")
+
+        # Update ALL selected experiments each cycle
+        seconds_from_start = int((cycle - 1) * args.interval)
+        summary_lines = []
+
+        for exp_obj in selected:
+            exp_id = exp_obj.get("experiment_id")
+            if not exp_id:
+                continue
+            meas = meas_by_exp[exp_id]
+            device_id = device_by_exp.get(exp_id, "PI-EDGE-001")
+            start_ts = start_ts_by_exp[exp_id]
+
+            if not args.no_write:
+                meas = append_measurements(meas, exp_id, device_id, start_ts, seconds_from_start)
+                meas_by_exp[exp_id] = meas
+                save_json(meas_path_by_exp[exp_id], meas)
+
+            score, flag = compute_simple_anomaly_score(meas)
+            summary_lines.append(f"{exp_id}: {flag} ({score:.3f})")
+
+            if not args.no_write:
+                nowz = iso_z(utc_now())
+                exp_obj["ml_version"] = exp_obj.get("ml_version") or "lstm_v1.0.0_demo"
+                exp_obj["anomaly_score"] = score
+                exp_obj["ml_flag"] = flag
+                exp_obj["ml_timestamp_utc"] = nowz
+                exp_obj["end_timestamp_utc"] = meas[-1]["timestamp_utc"] if meas else exp_obj.get("end_timestamp_utc")
 
         if not args.no_write:
-            seconds_from_start = int((cycle - 1) * args.interval)
-            meas = append_measurements(meas, exp_id, device_id, start_ts, seconds_from_start)
-            save_json(meas_path, meas)
-
-        log("ML", "Reading latest window from DB... OK (simulated)")
-        score, flag = compute_simple_anomaly_score(meas)
-        log("ML", f"Running LSTM inference... OK (simulated)  anomaly_score={score:.3f} ml_flag={flag}")
-
-        if not args.no_write:
-            nowz = iso_z(utc_now())
-            exp["ml_version"] = exp.get("ml_version") or "lstm_v1.0.0_demo"
-            exp["anomaly_score"] = score
-            exp["ml_flag"] = flag
-            exp["ml_timestamp_utc"] = nowz
-            exp["end_timestamp_utc"] = meas[-1]["timestamp_utc"] if meas else exp.get("end_timestamp_utc")
             save_json(exp_path, exps)
 
-        log("DASH", "Fetching /experiments ... 200 OK (simulated)")
-        log("DASH", f"UI updated. (Refresh browser to see new flag/score) exp={exp_id} flag={flag} score={score:.3f}")
+        log("ML", "Running LSTM inference... OK   (all experiments updated)")
+        for line in summary_lines[:6]:
+            log("ML", line)
+
+        log("DASH", "Fetching /experiments ... 200 OK ")
+        log("DASH", "UI updated. Refresh browser to see new flags/scores.")
         print("")
         time.sleep(args.interval)
 

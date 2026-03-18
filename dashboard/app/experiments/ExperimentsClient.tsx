@@ -16,7 +16,7 @@ export default function ExperimentsClient({ experiments }: Props) {
   const [device_id, setDeviceId] = useState<string>("ALL");
   const [integrity_status, setIntegrityStatus] = useState<IntegrityStatus | "ALL">("ALL");
   const [ml_flag, setMlFlag] = useState<MLFlag | "ALL">("ALL");
-  const [lastHours, setLastHours] = useState<number>(72); // default: last 72 hours
+  const [lastHours, setLastHours] = useState<number>(99999); // default: show all demo experiments
 
   const deviceOptions = useMemo(() => ["ALL", ...unique(experiments.map(e => e.device_id))], [experiments]);
 
@@ -83,7 +83,7 @@ export default function ExperimentsClient({ experiments }: Props) {
               type="number"
               value={lastHours}
               min={1}
-              max={720}
+              max={999999}
               onChange={(e) => setLastHours(Number(e.target.value))}
               style={{ width: 80 }}
             />
