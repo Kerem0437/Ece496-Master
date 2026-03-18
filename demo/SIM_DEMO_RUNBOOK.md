@@ -1,8 +1,8 @@
-# Demo mode pipeline (offline) (backup recording)
+# Demo mode pipeline (offline)
 
-This is an **offline simulation** that prints realistic logs and updates `dashboard/demo-json/` so the UI changes on refresh.
+This runs a **demo mode** pipeline that prints live logs and updates `dashboard/demo-json/` so the dashboard changes on refresh.
 
-## Run dashboard (Terminal 1)
+## Terminal 1: dashboard
 ```bash
 cd dashboard
 cp .env.example .env   # Windows: copy .env.example .env
@@ -12,11 +12,9 @@ npm run dev
 ```
 Open: http://localhost:3000/experiments
 
-## Run simulator (Terminal 2)
+## Terminal 2: demo mode logs + updates
 ```bash
 cd demo
-py demo_realtime_demo.py --duration 30
+py demo_realtime.py --duration 30 --interval 2
 ```
-Refresh the browser once or twice while recording to show ml_flag/anomaly_score changes.
-
-> NOTE: This is clearly labeled DEMO MODE MODE (no MQTT/Influx connection).
+Refresh the browser once or twice while recording.
