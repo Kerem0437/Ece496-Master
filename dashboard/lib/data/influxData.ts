@@ -1,5 +1,5 @@
 import type { Experiment, ExperimentSummary, Measurement, MLFlag, IntegrityStatus } from "@/lib/types";
-import { getQueryApi, INFLUX_BUCKET, INFLUX_MEASUREMENT, ML_MEASUREMENT } from "@/lib/influxClient";
+import { getQueryApi, getInfluxBucket, getInfluxMeasurement, getMlMeasurement } from "@/lib/influxClient";
 
 type SensorRow = {
   _time: string;
@@ -68,9 +68,9 @@ function parseExperimentId(experiment_id: string): { device: string; room: strin
 async function querySensorRows(start: string): Promise<SensorRow[]> {
   const q = getQueryApi();
   const flux = [
-    `from(bucket: "${INFLUX_BUCKET}")`,
+    `from(bucket: "${getInfluxBucket()}")`,
     `  |> range(start: ${start})`,
-    `  |> filter(fn: (r) => r._measurement == "${INFLUX_MEASUREMENT}")`,
+    `  |> filter(fn: (r) => r._measurement == "${getInfluxMeasurement()}")`,
     `  |> filter(fn: (r) => r._field == "temp" or r._field == "humidity" or r._field == "luminosity")`,
     `  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")`,
     `  |> keep(columns: ["_time","device","room","temp","humidity","luminosity"])`,
@@ -90,9 +90,9 @@ async function querySensorRows(start: string): Promise<SensorRow[]> {
 async function queryLatestMlSummaryMap(start: string): Promise<Map<string, MLSummaryRow>> {
   const q = getQueryApi();
   const flux = [
-    `from(bucket: "${INFLUX_BUCKET}")`,
+    `from(bucket: "${getInfluxBucket()}")`,
     `  |> range(start: ${start})`,
-    `  |> filter(fn: (r) => r._measurement == "${ML_MEASUREMENT}")`,
+    `  |> filter(fn: (r) => r._measurement == "${getMlMeasurement()}")`,
     `  |> group(columns: ["experiment_id"])`,
     `  |> last()`,
     `  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")`,
@@ -316,9 +316,9 @@ export async function getExperimentByIdFromInflux(experiment_id: string): Promis
 
   const q = getQueryApi();
   const flux = [
-    `from(bucket: "${INFLUX_BUCKET}")`,
+    `from(bucket: "${getInfluxBucket()}")`,
     `  |> range(start: time(v: "${startFlux}"))`,
-    `  |> filter(fn: (r) => r._measurement == "${INFLUX_MEASUREMENT}")`,
+    `  |> filter(fn: (r) => r._measurement == "${getInfluxMeasurement()}")`,
     `  |> filter(fn: (r) => r.device == "${device}")`,
     room ? `  |> filter(fn: (r) => r.room == "${room}")` : "",
     `  |> filter(fn: (r) => r._field == "temp" or r._field == "humidity" or r._field == "luminosity")`,
@@ -387,9 +387,9 @@ export async function getMeasurementsByExperimentIdFromInflux(experiment_id: str
   const q = getQueryApi();
 
   const flux = [
-    `from(bucket: "${INFLUX_BUCKET}")`,
+    `from(bucket: "${getInfluxBucket()}")`,
     `  |> range(start: time(v: "${start}")${end ? `, stop: time(v: "${end}")` : ""})`,
-    `  |> filter(fn: (r) => r._measurement == "${INFLUX_MEASUREMENT}")`,
+    `  |> filter(fn: (r) => r._measurement == "${getInfluxMeasurement()}")`,
     `  |> filter(fn: (r) => r.device == "${device}")`,
     room ? `  |> filter(fn: (r) => r.room == "${room}")` : "",
     `  |> filter(fn: (r) => r._field == "temp" or r._field == "humidity" or r._field == "luminosity")`,
