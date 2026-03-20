@@ -4,6 +4,7 @@ import StatusPill from "@/components/StatusPill";
 import ChartPlaceholder from "@/components/ChartPlaceholder";
 
 import { fetchExperimentById, fetchMeasurementsByExperimentId } from "@/lib/data";
+import LiveView from "./LiveView";
 
 import {
   computeDurationSeconds,
@@ -24,6 +25,23 @@ export default async function ExperimentDetailPage({ params }: { params: { exper
           No experiment exists with ID <span className="mono">{experiment_id}</span>.
         </p>
         <Link className="btn" href="/experiments">← Back to Experiments</Link>
+      </div>
+    );
+  }
+
+  // LIVE rolling mode: do not render full historical series server-side.
+  // Instead, render a client component that polls a short rolling window.
+  if ((process.env.DATA_MODE ?? "").toLowerCase() === "influx") {
+    return (
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <div>
+            <h1 className="h1">Experiment Detail (Live)</h1>
+            <p className="sub">ID: <span className="mono">{experiment.experiment_id}</span></p>
+          </div>
+          <Link className="btn" href="/experiments">← Back to Experiments</Link>
+        </div>
+        <LiveView experiment_id={experiment.experiment_id} />
       </div>
     );
   }

@@ -1,22 +1,29 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ExperimentSummary, IntegrityStatus, MLFlag } from "@/lib/types";
 import { computeFreshnessMinutes, formatUtc, unique } from "@/lib/utils";
 import StatusPill from "@/components/StatusPill";
 import Card from "@/components/Card";
 
-type Props = { experiments: ExperimentSummary[] };
+type Props = { experiments: ExperimentSummary[]; mode: string };
 
-export default function ExperimentsClient({ experiments }: Props) {
+export default function ExperimentsClient({ experiments, mode }: Props) {
   const router = useRouter();
+  const refreshSeconds = Number(process.env.NEXT_PUBLIC_LIVE_LIST_REFRESH_SECONDS ?? "120");
+
+  useEffect(() => {
+    if (mode !== "influx") return;
+    const t = setInterval(() => router.refresh(), Math.max(15, refreshSeconds) * 1000);
+    return () => clearInterval(t);
+  }, [mode, router, refreshSeconds]);
 
   // Simple, local UI state for filters (T4 requirement).
   const [device_id, setDeviceId] = useState<string>("ALL");
   const [integrity_status, setIntegrityStatus] = useState<IntegrityStatus | "ALL">("ALL");
   const [ml_flag, setMlFlag] = useState<MLFlag | "ALL">("ALL");
-  const [lastHours, setLastHours] = useState<number>(99999); // default: show all demo experiments
+  const [lastHours, setLastHours] = useState<number>(99999); // default: show all (demo-friendly)
 
   const deviceOptions = useMemo(() => ["ALL", ...unique(experiments.map(e => e.device_id))], [experiments]);
 

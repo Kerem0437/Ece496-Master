@@ -10,8 +10,9 @@ export default async function ExperimentsPage() {
       <p className="sub">
         List view with filtering/sorting. Data source:
         <span className="mono"> {process.env.DATA_MODE ?? "influx"}</span>
+        <span className="sub"> • Live auto-refresh uses NEXT_PUBLIC_LIVE_LIST_REFRESH_SECONDS</span>
       </p>
-      <ExperimentsClient experiments={experiments} />
+      <ExperimentsClient experiments={experiments} mode={(process.env.DATA_MODE ?? "mock").toLowerCase()} />
     </div>
   );
 }

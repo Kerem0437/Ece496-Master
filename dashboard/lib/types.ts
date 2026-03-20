@@ -11,6 +11,14 @@ export type PredictionPoint = {
   value: number;
 };
 
+export type PerFeatureScore = {
+  raw_mse?: number | null;
+  score?: number | null;
+  flag?: MLFlag;
+};
+
+export type PerFeatureMap = Record<string, PerFeatureScore>;
+
 export type Experiment = {
   // Required identifiers
   experiment_id: string;
@@ -41,6 +49,7 @@ export type Experiment = {
   ml_version: string | null;
   anomaly_score: number | null;
   ml_flag: MLFlag;
+  per_feature?: PerFeatureMap | null;
   ml_timestamp_utc: string | null;
 
   // Optional predicted curve (placeholder allowed)
@@ -80,6 +89,7 @@ export type ExperimentSummary = {
 
   integrity_status: IntegrityStatus;
   ml_flag: MLFlag;
+  per_feature?: PerFeatureMap | null;
 
   // Used by list view "Sensor types involved"
   sensor_types: string[];

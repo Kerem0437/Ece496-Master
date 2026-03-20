@@ -1,27 +1,25 @@
-import type { Experiment, ExperimentSummary, Measurement, MLFlag, IntegrityStatus } from "@/lib/types";
-import { getQueryApi, getInfluxBucket, getInfluxMeasurement, getMlMeasurement } from "@/lib/influxClient";
+import type { Experiment, ExperimentSummary, Measurement, IntegrityStatus, MLFlag } from "@/lib/types";
+import { getQueryApi, getInfluxBucket, getInfluxMeasurement } from "@/lib/influxClient";
 
 type SensorRow = {
   _time: string;
   device?: string;
   room?: string;
-  temp?: number;
-  humidity?: number;
-  luminosity?: number;
+
+  air_temp_C?: number;
+  air_humidity_pct?: number;
+  pH?: number;
+  turbidity_voltage_V?: number;
+  water_temp_C?: number;
 };
 
-type MLSummaryRow = {
-  experiment_id?: string;
-  device?: string;
-  room?: string;
-  ml_version?: string;
-  anomaly_score?: number;
-  ml_flag?: string;
-  ml_timestamp_utc?: string;
-  prediction_curve_json?: string;
-  error_raw?: number;
-  seq_len?: number;
-  _time?: string;
+type Run = {
+  experiment_id: string;
+  device: string;
+  room: string | null;
+  start: Date;
+  end: Date;
+  rows: SensorRow[];
 };
 
 function safeRoom(v: any): string | null {
@@ -38,7 +36,6 @@ function roundDownToMinute(d: Date): Date {
 }
 
 function makeExperimentId(device: string, room: string | null, start: Date): string {
-  // Must match Python: f"{device}_{room or 'noroom'}_{start.strftime('%Y%m%dT%H%M%SZ')}"
   const r = room ?? "noroom";
   const yyyy = start.getUTCFullYear().toString().padStart(4, "0");
   const MM = (start.getUTCMonth() + 1).toString().padStart(2, "0");
@@ -57,7 +54,6 @@ function parseExperimentId(experiment_id: string): { device: string; room: strin
   const device = parts.slice(0, -2).join("_");
   const room = roomPart === "noroom" ? null : roomPart;
 
-  // ts: YYYYMMDDTHHMMSSZ
   const m = ts.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
   if (!m) throw new Error(`Bad timestamp in experiment_id: ${experiment_id}`);
   const [_, y, mo, d, h, mi, s] = m;
@@ -65,15 +61,30 @@ function parseExperimentId(experiment_id: string): { device: string; room: strin
   return { device, room, startUtc };
 }
 
+function integrityDefault(): IntegrityStatus {
+  return "UNKNOWN";
+}
+
+function mlDefault(): MLFlag {
+  return "UNKNOWN";
+}
+
+/**
+ * Query all supported sensor fields for the last N days/hours.
+ * NOTE: This expects the MQTT→Influx bridge to write fields with these names.
+ */
 async function querySensorRows(start: string): Promise<SensorRow[]> {
   const q = getQueryApi();
+  const bucket = getInfluxBucket();
+  const measurement = getInfluxMeasurement();
+
   const flux = [
-    `from(bucket: "${getInfluxBucket()}")`,
+    `from(bucket: "${bucket}")`,
     `  |> range(start: ${start})`,
-    `  |> filter(fn: (r) => r._measurement == "${getInfluxMeasurement()}")`,
-    `  |> filter(fn: (r) => r._field == "temp" or r._field == "humidity" or r._field == "luminosity")`,
+    `  |> filter(fn: (r) => r._measurement == "${measurement}")`,
+    `  |> filter(fn: (r) => r._field == "air_temp_C" or r._field == "air_humidity_pct" or r._field == "pH" or r._field == "turbidity_voltage_V" or r._field == "water_temp_C")`,
     `  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")`,
-    `  |> keep(columns: ["_time","device","room","temp","humidity","luminosity"])`,
+    `  |> keep(columns: ["_time","device","room","air_temp_C","air_humidity_pct","pH","turbidity_voltage_V","water_temp_C"])`,
   ].join("\n");
 
   const rows = await q.collectRows<any>(flux);
@@ -81,192 +92,108 @@ async function querySensorRows(start: string): Promise<SensorRow[]> {
     _time: String(r._time),
     device: r.device ? String(r.device) : undefined,
     room: r.room ? String(r.room) : undefined,
-    temp: r.temp !== undefined ? Number(r.temp) : undefined,
-    humidity: r.humidity !== undefined ? Number(r.humidity) : undefined,
-    luminosity: r.luminosity !== undefined ? Number(r.luminosity) : undefined,
+    air_temp_C: r.air_temp_C !== undefined ? Number(r.air_temp_C) : undefined,
+    air_humidity_pct: r.air_humidity_pct !== undefined ? Number(r.air_humidity_pct) : undefined,
+    pH: r.pH !== undefined ? Number(r.pH) : undefined,
+    turbidity_voltage_V: r.turbidity_voltage_V !== undefined ? Number(r.turbidity_voltage_V) : undefined,
+    water_temp_C: r.water_temp_C !== undefined ? Number(r.water_temp_C) : undefined,
   }));
 }
 
-async function queryLatestMlSummaryMap(start: string): Promise<Map<string, MLSummaryRow>> {
-  const q = getQueryApi();
-  const flux = [
-    `from(bucket: "${getInfluxBucket()}")`,
-    `  |> range(start: ${start})`,
-    `  |> filter(fn: (r) => r._measurement == "${getMlMeasurement()}")`,
-    `  |> group(columns: ["experiment_id"])`,
-    `  |> last()`,
-    `  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")`,
-    `  |> keep(columns: ["_time","experiment_id","device","room","ml_version","anomaly_score","ml_flag","ml_timestamp_utc","prediction_curve_json","error_raw","seq_len"])`,
-  ].join("\n");
-
-  const rows = await q.collectRows<any>(flux);
-  const m = new Map<string, MLSummaryRow>();
-  for (const r of rows) {
-    const id = r.experiment_id ? String(r.experiment_id) : "";
-    if (!id) continue;
-    m.set(id, {
-      experiment_id: id,
-      device: r.device ? String(r.device) : undefined,
-      room: r.room ? String(r.room) : undefined,
-      ml_version: r.ml_version ? String(r.ml_version) : undefined,
-      anomaly_score: r.anomaly_score !== undefined ? Number(r.anomaly_score) : undefined,
-      ml_flag: r.ml_flag ? String(r.ml_flag) : undefined,
-      ml_timestamp_utc: r.ml_timestamp_utc ? String(r.ml_timestamp_utc) : undefined,
-      prediction_curve_json: r.prediction_curve_json ? String(r.prediction_curve_json) : undefined,
-      error_raw: r.error_raw !== undefined ? Number(r.error_raw) : undefined,
-      seq_len: r.seq_len !== undefined ? Number(r.seq_len) : undefined,
-      _time: r._time ? String(r._time) : undefined,
-    });
-  }
-  return m;
-}
-
-type Run = {
-  experiment_id: string;
-  device: string;
-  room: string | null;
-  start: Date;
-  end: Date;
-  rows: SensorRow[];
-};
-
+/**
+ * Segment sensor stream into "runs" using a gap threshold (minutes).
+ * This yields stable experiment IDs even for continuous streaming.
+ */
 function segmentRuns(rows: SensorRow[], gapSplitMin: number): Run[] {
-  // group by (device, room), split by time gaps
-  const byKey = new Map<string, SensorRow[]>();
-  for (const r of rows) {
-    const device = r.device ? String(r.device) : "unknown_device";
-    const room = safeRoom(r.room);
-    const key = `${device}|||${room ?? "noroom"}`;
-    const arr = byKey.get(key) ?? [];
-    arr.push(r);
-    byKey.set(key, arr);
-  }
+  const clean = rows
+    .filter((r) => !!r.device)
+    .map((r) => ({ ...r, device: String(r.device) }))
+    .sort((a, b) => new Date(a._time).getTime() - new Date(b._time).getTime());
 
-  const runs: Run[] = [];
+  const out: Run[] = [];
   const gapMs = gapSplitMin * 60 * 1000;
 
-  for (const [key, arr] of byKey.entries()) {
-    arr.sort((a, b) => new Date(a._time).getTime() - new Date(b._time).getTime());
-    const [device, roomPart] = key.split("|||");
-    const room = roomPart === "noroom" ? null : roomPart;
+  let cur: Run | null = null;
+  let prevTime: number | null = null;
 
-    // filter rows with at least one sensor value
-    const clean = arr.filter(r => r.temp !== undefined || r.humidity !== undefined || r.luminosity !== undefined);
-    if (clean.length === 0) continue;
+  for (const r of clean) {
+    const t = new Date(r._time);
+    const device = String(r.device);
+    const room = safeRoom(r.room);
+    const tMs = t.getTime();
 
-    let startIdx = 0;
-    for (let i = 1; i <= clean.length; i++) {
-      const prev = new Date(clean[i - 1]._time).getTime();
-      const curr = i < clean.length ? new Date(clean[i]._time).getTime() : null;
+    const startNew =
+      !cur ||
+      cur.device !== device ||
+      cur.room !== room ||
+      (prevTime !== null && tMs - prevTime > gapMs);
 
-      const isSplit = curr !== null ? (curr - prev) > gapMs : true;
-      if (isSplit) {
-        const slice = clean.slice(startIdx, i);
-        const start = roundDownToMinute(new Date(slice[0]._time));
-        const end = new Date(slice[slice.length - 1]._time);
-        const experiment_id = makeExperimentId(device, room, start);
-        runs.push({ experiment_id, device, room, start, end, rows: slice });
-        startIdx = i;
+    if (startNew) {
+      if (cur) {
+        cur.end = new Date(prevTime ?? cur.start.getTime());
+        out.push(cur);
       }
+      const start = roundDownToMinute(t);
+      cur = {
+        experiment_id: makeExperimentId(device, room, start),
+        device,
+        room,
+        start,
+        end: start,
+        rows: [],
+      };
     }
+
+    cur!.rows.push(r);
+    prevTime = tMs;
   }
 
-  runs.sort((a, b) => b.end.getTime() - a.end.getTime()); // newest first
-  return runs;
-}
-
-function mlFlagOrDefault(v: any): MLFlag {
-  const s = String(v ?? "").toUpperCase();
-  if (s === "NORMAL" || s === "SUSPICIOUS" || s === "UNKNOWN" || s === "INSUFFICIENT_DATA") return s as MLFlag;
-  return "UNKNOWN";
-}
-
-function integrityDefault(): IntegrityStatus {
-  return "UNKNOWN";
-}
-
-function predictionCurveFromJson(prediction_curve_json?: string): { time_offset_seconds: number; value: number }[] | null {
-  if (!prediction_curve_json) return null;
-  try {
-    const obj = JSON.parse(prediction_curve_json);
-    // Our Python writes either:
-    //  - {channel, actual, expected, abs_residual}   OR
-    //  - {time_offsets_sec, expected_values, actual_values}
-    const offsets: number[] =
-      obj.time_offsets_sec ?? obj.time_offsets_seconds ?? obj.time_offsets ?? null;
-
-    const expected: number[] =
-      obj.expected_values ?? obj.expected ?? null;
-
-    if (Array.isArray(offsets) && Array.isArray(expected) && offsets.length === expected.length) {
-      return offsets.map((t: number, i: number) => ({ time_offset_seconds: Number(t), value: Number(expected[i]) }));
-    }
-
-    // fallback: if only expected list, assume 60s step
-    if (Array.isArray(expected)) {
-      return expected.map((v: number, i: number) => ({ time_offset_seconds: i * 60, value: Number(v) }));
-    }
-    return null;
-  } catch {
-    return null;
+  if (cur) {
+    cur.end = new Date(prevTime ?? cur.start.getTime());
+    out.push(cur);
   }
+
+  return out;
 }
 
 function buildMeasurements(run: Run): Measurement[] {
   const startMs = run.start.getTime();
   const measurements: Measurement[] = [];
-  let idxTemp = 0, idxHum = 0, idxLum = 0;
+
+  const push = (sensor_type: string, value: number, unit: string, idx: number, tIso: string, offsetSec: number) => {
+    measurements.push({
+      measurement_id: `${run.experiment_id}_${sensor_type}_${idx}`,
+      experiment_id: run.experiment_id,
+      timestamp_utc: tIso,
+      device_id: run.device,
+      sensor_type,
+      value,
+      unit,
+      sample_index: idx,
+      time_offset_seconds: offsetSec,
+    });
+  };
+
+  const idx: Record<string, number> = {
+    air_temp_C: 0,
+    air_humidity_pct: 0,
+    pH: 0,
+    turbidity_voltage_V: 0,
+    water_temp_C: 0,
+  };
 
   for (const r of run.rows) {
     const t = new Date(r._time);
     const tIso = t.toISOString();
     const offsetSec = Math.max(0, Math.floor((t.getTime() - startMs) / 1000));
 
-    if (r.temp !== undefined) {
-      measurements.push({
-        measurement_id: `${run.experiment_id}_temp_${idxTemp}`,
-        experiment_id: run.experiment_id,
-        timestamp_utc: tIso,
-        device_id: run.device,
-        sensor_type: "temp",
-        value: Number(r.temp),
-        unit: "C",
-        sample_index: idxTemp,
-        time_offset_seconds: offsetSec,
-      });
-      idxTemp++;
-    }
-    if (r.humidity !== undefined) {
-      measurements.push({
-        measurement_id: `${run.experiment_id}_humidity_${idxHum}`,
-        experiment_id: run.experiment_id,
-        timestamp_utc: tIso,
-        device_id: run.device,
-        sensor_type: "humidity",
-        value: Number(r.humidity),
-        unit: "%",
-        sample_index: idxHum,
-        time_offset_seconds: offsetSec,
-      });
-      idxHum++;
-    }
-    if (r.luminosity !== undefined) {
-      measurements.push({
-        measurement_id: `${run.experiment_id}_luminosity_${idxLum}`,
-        experiment_id: run.experiment_id,
-        timestamp_utc: tIso,
-        device_id: run.device,
-        sensor_type: "luminosity",
-        value: Number(r.luminosity),
-        unit: "lux",
-        sample_index: idxLum,
-        time_offset_seconds: offsetSec,
-      });
-      idxLum++;
-    }
+    if (r.air_temp_C !== undefined) push("air_temp_C", Number(r.air_temp_C), "C", idx.air_temp_C++, tIso, offsetSec);
+    if (r.air_humidity_pct !== undefined) push("air_humidity_pct", Number(r.air_humidity_pct), "%", idx.air_humidity_pct++, tIso, offsetSec);
+    if (r.pH !== undefined) push("pH", Number(r.pH), "pH", idx.pH++, tIso, offsetSec);
+    if (r.turbidity_voltage_V !== undefined) push("turbidity_voltage_V", Number(r.turbidity_voltage_V), "V", idx.turbidity_voltage_V++, tIso, offsetSec);
+    if (r.water_temp_C !== undefined) push("water_temp_C", Number(r.water_temp_C), "C", idx.water_temp_C++, tIso, offsetSec);
   }
 
-  // stable ordering
   measurements.sort((a, b) => new Date(a.timestamp_utc).getTime() - new Date(b.timestamp_utc).getTime());
   return measurements;
 }
@@ -278,20 +205,13 @@ export async function getExperimentsFromInflux(opts?: { start?: string; gapSplit
   const rows = await querySensorRows(start);
   const runs = segmentRuns(rows, gapSplitMin);
 
-  const mlMap = await queryLatestMlSummaryMap("-30d");
-
   return runs.map((run) => {
-    const ml = mlMap.get(run.experiment_id);
-    const ml_flag = ml ? mlFlagOrDefault(ml.ml_flag) : "UNKNOWN";
-
     const sensor_types: string[] = [];
-    // include only sensors present in the run
-    const hasTemp = run.rows.some(r => r.temp !== undefined);
-    const hasHum = run.rows.some(r => r.humidity !== undefined);
-    const hasLum = run.rows.some(r => r.luminosity !== undefined);
-    if (hasTemp) sensor_types.push("temp");
-    if (hasHum) sensor_types.push("humidity");
-    if (hasLum) sensor_types.push("luminosity");
+    if (run.rows.some(r => r.air_temp_C !== undefined)) sensor_types.push("air_temp_C");
+    if (run.rows.some(r => r.air_humidity_pct !== undefined)) sensor_types.push("air_humidity_pct");
+    if (run.rows.some(r => r.pH !== undefined)) sensor_types.push("pH");
+    if (run.rows.some(r => r.turbidity_voltage_V !== undefined)) sensor_types.push("turbidity_voltage_V");
+    if (run.rows.some(r => r.water_temp_C !== undefined)) sensor_types.push("water_temp_C");
 
     return {
       experiment_id: run.experiment_id,
@@ -300,7 +220,7 @@ export async function getExperimentsFromInflux(opts?: { start?: string; gapSplit
       start_timestamp_utc: run.start.toISOString(),
       end_timestamp_utc: run.end.toISOString(),
       integrity_status: integrityDefault(),
-      ml_flag,
+      ml_flag: mlDefault(), // filled by ML service (no DB writes)
       sensor_types,
     };
   });
@@ -310,40 +230,43 @@ export async function getExperimentByIdFromInflux(experiment_id: string): Promis
   const { device, room, startUtc } = parseExperimentId(experiment_id);
   const gapSplitMin = Number(process.env.GAP_SPLIT_MIN ?? "5");
 
-  // Pull a window around the experiment start to find exact segment
-  const start = new Date(startUtc.getTime() - 6 * 60 * 60 * 1000); // -6h buffer
+  // query a bit before start in case rounding
+  const start = new Date(startUtc.getTime() - 6 * 60 * 60 * 1000);
   const startFlux = start.toISOString();
 
   const q = getQueryApi();
+  const bucket = getInfluxBucket();
+  const measurement = getInfluxMeasurement();
+
   const flux = [
-    `from(bucket: "${getInfluxBucket()}")`,
+    `from(bucket: "${bucket}")`,
     `  |> range(start: time(v: "${startFlux}"))`,
-    `  |> filter(fn: (r) => r._measurement == "${getInfluxMeasurement()}")`,
+    `  |> filter(fn: (r) => r._measurement == "${measurement}")`,
     `  |> filter(fn: (r) => r.device == "${device}")`,
     room ? `  |> filter(fn: (r) => r.room == "${room}")` : "",
-    `  |> filter(fn: (r) => r._field == "temp" or r._field == "humidity" or r._field == "luminosity")`,
+    `  |> filter(fn: (r) => r._field == "air_temp_C" or r._field == "air_humidity_pct" or r._field == "pH" or r._field == "turbidity_voltage_V" or r._field == "water_temp_C")`,
     `  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")`,
-    `  |> keep(columns: ["_time","device","room","temp","humidity","luminosity"])`,
+    `  |> keep(columns: ["_time","device","room","air_temp_C","air_humidity_pct","pH","turbidity_voltage_V","water_temp_C"])`,
   ].filter(Boolean).join("\n");
 
   const rows = (await q.collectRows<any>(flux)).map((r) => ({
     _time: String(r._time),
     device: r.device ? String(r.device) : undefined,
     room: r.room ? String(r.room) : undefined,
-    temp: r.temp !== undefined ? Number(r.temp) : undefined,
-    humidity: r.humidity !== undefined ? Number(r.humidity) : undefined,
-    luminosity: r.luminosity !== undefined ? Number(r.luminosity) : undefined,
+    air_temp_C: r.air_temp_C !== undefined ? Number(r.air_temp_C) : undefined,
+    air_humidity_pct: r.air_humidity_pct !== undefined ? Number(r.air_humidity_pct) : undefined,
+    pH: r.pH !== undefined ? Number(r.pH) : undefined,
+    turbidity_voltage_V: r.turbidity_voltage_V !== undefined ? Number(r.turbidity_voltage_V) : undefined,
+    water_temp_C: r.water_temp_C !== undefined ? Number(r.water_temp_C) : undefined,
   })) as SensorRow[];
 
   const runs = segmentRuns(rows, gapSplitMin);
   const run = runs.find(r => r.experiment_id === experiment_id);
   if (!run) return null;
 
-  // ML summary for this experiment
-  const mlMap = await queryLatestMlSummaryMap("-30d");
-  const ml = mlMap.get(experiment_id);
-
-  const prediction_curve = predictionCurveFromJson(ml?.prediction_curve_json);
+  // choose primary series
+  const primary = run.rows.some(r => r.turbidity_voltage_V !== undefined) ? "turbidity_voltage_V"
+    : (run.rows.some(r => r.pH !== undefined) ? "pH" : "water_temp_C");
 
   return {
     experiment_id,
@@ -365,14 +288,13 @@ export async function getExperimentByIdFromInflux(experiment_id: string): Promis
     integrity_status: integrityDefault(),
     source_file_id: null,
 
-    ml_version: ml?.ml_version ?? null,
-    anomaly_score: ml?.anomaly_score !== undefined ? Number(ml.anomaly_score) : null,
-    ml_flag: ml ? mlFlagOrDefault(ml.ml_flag) : "UNKNOWN",
-    ml_timestamp_utc: ml?.ml_timestamp_utc ?? null,
+    ml_version: null,
+    anomaly_score: null,
+    ml_flag: mlDefault(),
+    ml_timestamp_utc: null,
 
-    prediction_curve: prediction_curve ?? null,
-
-    primary_sensor_type: "luminosity",
+    prediction_curve: null,
+    primary_sensor_type: primary,
   };
 }
 
@@ -385,39 +307,186 @@ export async function getMeasurementsByExperimentIdFromInflux(experiment_id: str
 
   const { device, room } = parseExperimentId(experiment_id);
   const q = getQueryApi();
+  const bucket = getInfluxBucket();
+  const measurement = getInfluxMeasurement();
 
   const flux = [
-    `from(bucket: "${getInfluxBucket()}")`,
+    `from(bucket: "${bucket}")`,
     `  |> range(start: time(v: "${start}")${end ? `, stop: time(v: "${end}")` : ""})`,
-    `  |> filter(fn: (r) => r._measurement == "${getInfluxMeasurement()}")`,
+    `  |> filter(fn: (r) => r._measurement == "${measurement}")`,
     `  |> filter(fn: (r) => r.device == "${device}")`,
     room ? `  |> filter(fn: (r) => r.room == "${room}")` : "",
-    `  |> filter(fn: (r) => r._field == "temp" or r._field == "humidity" or r._field == "luminosity")`,
+    `  |> filter(fn: (r) => r._field == "air_temp_C" or r._field == "air_humidity_pct" or r._field == "pH" or r._field == "turbidity_voltage_V" or r._field == "water_temp_C")`,
     `  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")`,
-    `  |> keep(columns: ["_time","device","room","temp","humidity","luminosity"])`,
+    `  |> keep(columns: ["_time","device","room","air_temp_C","air_humidity_pct","pH","turbidity_voltage_V","water_temp_C"])`,
   ].filter(Boolean).join("\n");
 
   const rows = (await q.collectRows<any>(flux)).map((r) => ({
     _time: String(r._time),
     device: r.device ? String(r.device) : undefined,
     room: r.room ? String(r.room) : undefined,
-    temp: r.temp !== undefined ? Number(r.temp) : undefined,
-    humidity: r.humidity !== undefined ? Number(r.humidity) : undefined,
-    luminosity: r.luminosity !== undefined ? Number(r.luminosity) : undefined,
+    air_temp_C: r.air_temp_C !== undefined ? Number(r.air_temp_C) : undefined,
+    air_humidity_pct: r.air_humidity_pct !== undefined ? Number(r.air_humidity_pct) : undefined,
+    pH: r.pH !== undefined ? Number(r.pH) : undefined,
+    turbidity_voltage_V: r.turbidity_voltage_V !== undefined ? Number(r.turbidity_voltage_V) : undefined,
+    water_temp_C: r.water_temp_C !== undefined ? Number(r.water_temp_C) : undefined,
   })) as SensorRow[];
 
-  // Build a run-like structure for measurement conversion
   const startUtc = new Date(exp.start_timestamp_utc);
   const endUtc = exp.end_timestamp_utc ? new Date(exp.end_timestamp_utc) : new Date(rows[rows.length - 1]?._time ?? exp.start_timestamp_utc);
 
   const run: Run = {
     experiment_id,
-    device: device,
-    room: room,
+    device,
+    room,
     start: startUtc,
     end: endUtc,
     rows,
   };
 
   return buildMeasurements(run);
+}
+
+
+/**
+ * LIVE list-mode helper:
+ * Fetch a small recent window of measurements for an experiment and send to ML service.
+ * This avoids reading/writing any ML rows in Influx (DB stays sensor-only).
+ */
+
+/**
+ * LIVE window helper (time-based):
+ * Fetch measurements for the last `windowMinutes` minutes for a given experiment.
+ * Used for rolling 2-minute charts and rolling-window ML scoring.
+ */
+export async function getRecentWindowMeasurementsFromInflux(
+  experiment_id: string,
+  windowMinutes: number
+): Promise<Measurement[]> {
+  const { device, room } = parseExperimentId(experiment_id);
+
+  const q = getQueryApi();
+  const bucket = getInfluxBucket();
+  const measurement = getInfluxMeasurement();
+
+  const flux = [
+    `from(bucket: "${bucket}")`,
+    `  |> range(start: -${Math.max(1, Math.floor(windowMinutes))}m)`,
+    `  |> filter(fn: (r) => r._measurement == "${measurement}")`,
+    `  |> filter(fn: (r) => r.device == "${device}")`,
+    room ? `  |> filter(fn: (r) => r.room == "${room}")` : "",
+    `  |> filter(fn: (r) => r._field == "air_temp_C" or r._field == "air_humidity_pct" or r._field == "pH" or r._field == "turbidity_voltage_V" or r._field == "water_temp_C")`,
+    `  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")`,
+    `  |> keep(columns: ["_time","device","room","air_temp_C","air_humidity_pct","pH","turbidity_voltage_V","water_temp_C"])`,
+    `  |> sort(columns: ["_time"])`,
+  ].filter(Boolean).join("\n");
+
+  const rows = (await q.collectRows<any>(flux)).map((r) => ({
+    _time: String(r._time),
+    device: r.device ? String(r.device) : undefined,
+    room: r.room ? String(r.room) : undefined,
+    air_temp_C: r.air_temp_C !== undefined ? Number(r.air_temp_C) : undefined,
+    air_humidity_pct: r.air_humidity_pct !== undefined ? Number(r.air_humidity_pct) : undefined,
+    pH: r.pH !== undefined ? Number(r.pH) : undefined,
+    turbidity_voltage_V: r.turbidity_voltage_V !== undefined ? Number(r.turbidity_voltage_V) : undefined,
+    water_temp_C: r.water_temp_C !== undefined ? Number(r.water_temp_C) : undefined,
+  })) as SensorRow[];
+
+  // Build Measurement[] with time_offset_seconds relative to first point in this window.
+  const bySensor: Record<string, number> = {};
+  const out: Measurement[] = [];
+  const t0 = rows.length ? new Date(rows[0]._time).getTime() : Date.now();
+
+  const push = (sensor_type: string, value: number, unit: string, tIso: string) => {
+    const idx = bySensor[sensor_type] ?? 0;
+    bySensor[sensor_type] = idx + 1;
+    const t = new Date(tIso).getTime();
+    const offsetSec = Math.max(0, Math.floor((t - t0) / 1000));
+
+    out.push({
+      measurement_id: `${experiment_id}_${sensor_type}_${idx}`,
+      experiment_id,
+      timestamp_utc: tIso,
+      device_id: device,
+      sensor_type,
+      value,
+      unit,
+      sample_index: idx,
+      time_offset_seconds: offsetSec,
+    });
+  };
+
+  for (const r of rows) {
+    const tIso = new Date(r._time).toISOString();
+    if (r.air_temp_C !== undefined) push("air_temp_C", Number(r.air_temp_C), "C", tIso);
+    if (r.air_humidity_pct !== undefined) push("air_humidity_pct", Number(r.air_humidity_pct), "%", tIso);
+    if (r.pH !== undefined) push("pH", Number(r.pH), "pH", tIso);
+    if (r.turbidity_voltage_V !== undefined) push("turbidity_voltage_V", Number(r.turbidity_voltage_V), "V", tIso);
+    if (r.water_temp_C !== undefined) push("water_temp_C", Number(r.water_temp_C), "C", tIso);
+  }
+
+  out.sort((a, b) => new Date(a.timestamp_utc).getTime() - new Date(b.timestamp_utc).getTime());
+  return out;
+}
+
+export async function getLatestWindowMeasurementsFromInflux(
+  experiment_id: string,
+  windowPoints: number = 400
+): Promise<Measurement[]> {
+  const { device, room, startUtc } = parseExperimentId(experiment_id);
+
+  const q = getQueryApi();
+  const bucket = getInfluxBucket();
+  const measurement = getInfluxMeasurement();
+
+  const startIso = startUtc.toISOString();
+
+  const flux = [
+    `from(bucket: "${bucket}")`,
+    `  |> range(start: time(v: "${startIso}"))`,
+    `  |> filter(fn: (r) => r._measurement == "${measurement}")`,
+    `  |> filter(fn: (r) => r.device == "${device}")`,
+    room ? `  |> filter(fn: (r) => r.room == "${room}")` : "",
+    `  |> filter(fn: (r) => r._field == "air_temp_C" or r._field == "air_humidity_pct" or r._field == "pH" or r._field == "turbidity_voltage_V" or r._field == "water_temp_C")`,
+    `  |> sort(columns: ["_time"])`,
+    `  |> tail(n: ${windowPoints})`,
+    `  |> keep(columns: ["_time","device","room","_field","_value"])`,
+  ].filter(Boolean).join("\n");
+
+  const rows = await q.collectRows<any>(flux);
+
+  // build measurement list
+  const bySensor: Record<string, number> = {};
+  const out: Measurement[] = [];
+
+  for (const r of rows) {
+    const sensor_type = String(r._field);
+    const t = new Date(String(r._time));
+    const offsetSec = Math.max(0, Math.floor((t.getTime() - startUtc.getTime()) / 1000));
+    const idx = bySensor[sensor_type] ?? 0;
+    bySensor[sensor_type] = idx + 1;
+
+    // units
+    let unit = "—";
+    if (sensor_type === "air_temp_C") unit = "C";
+    if (sensor_type === "water_temp_C") unit = "C";
+    if (sensor_type === "air_humidity_pct") unit = "%";
+    if (sensor_type === "pH") unit = "pH";
+    if (sensor_type === "turbidity_voltage_V") unit = "V";
+
+    out.push({
+      measurement_id: `${experiment_id}_${sensor_type}_win_${idx}`,
+      experiment_id,
+      timestamp_utc: t.toISOString(),
+      device_id: device,
+      sensor_type,
+      value: Number(r._value),
+      unit,
+      sample_index: idx,
+      time_offset_seconds: offsetSec,
+    });
+  }
+
+  out.sort((a, b) => new Date(a.timestamp_utc).getTime() - new Date(b.timestamp_utc).getTime());
+  return out;
 }

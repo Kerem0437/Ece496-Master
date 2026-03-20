@@ -3,8 +3,8 @@ import { InfluxDB } from "@influxdata/influxdb-client";
 function requireEnv(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback;
   if (!v) {
-    // Called only when DATA_MODE=influx.
-    // For public deployments (Vercel) where VM1 is not reachable, set DATA_MODE=mock.
+    // NOTE: This is only called when DATA_MODE=influx.
+    // For Vercel/public deployments (no VPN access to VM1), set DATA_MODE=mock.
     throw new Error(
       `Missing env var ${name}. If deploying without DB access, set DATA_MODE=mock. Otherwise add it to dashboard/.env (see dashboard/.env.example).`
     );
@@ -24,8 +24,8 @@ export function getInfluxBucket(): string {
   return requireEnv("INFLUX_BUCKET", "capstone");
 }
 
+// IMPORTANT: keep token server-side (DO NOT prefix with NEXT_PUBLIC_)
 export function getInfluxQueryToken(): string {
-  // IMPORTANT: server-side only; do not prefix with NEXT_PUBLIC_
   return requireEnv("INFLUX_QUERY_TOKEN");
 }
 
