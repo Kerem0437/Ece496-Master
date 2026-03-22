@@ -2,6 +2,16 @@ import Card from "./Card";
 
 type Point = { x: number; y: number };
 
+function evenlySample(points: Point[], limit = 240): Point[] {
+  if (points.length <= limit) return points;
+  const out: Point[] = [];
+  for (let i = 0; i < limit; i += 1) {
+    const idx = Math.round((i * (points.length - 1)) / Math.max(1, limit - 1));
+    out.push(points[idx]);
+  }
+  return out;
+}
+
 export default function ChartPlaceholder({
   title,
   unit,
@@ -19,7 +29,7 @@ export default function ChartPlaceholder({
   const height = 220;
   const padding = 20;
 
-  const safePoints = points.slice(0, 200); // avoid over-dense SVG in mock
+  const safePoints = evenlySample(points, 240); // keep the full time range visible
   const xs = safePoints.map(p => p.x);
   const ys = safePoints.map(p => p.y);
 

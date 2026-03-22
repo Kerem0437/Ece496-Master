@@ -40,6 +40,7 @@ export default function StatusPill({
 function computeStyle(kind: "integrity" | "ml", value: IntegrityStatus | MLFlag) {
   if (kind === "integrity") {
     if (value === "VALID") return { label: "VALID", bg: "rgba(34,197,94,0.12)", border: "rgba(34,197,94,0.35)" };
+    if (value === "VERIFIED") return { label: "VERIFIED", bg: "rgba(34,197,94,0.12)", border: "rgba(34,197,94,0.35)" };
     if (value === "INVALID") return { label: "INVALID", bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.35)" };
     return { label: "UNKNOWN", bg: "rgba(148,163,184,0.10)", border: "rgba(148,163,184,0.28)" };
   }

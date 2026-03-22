@@ -38,7 +38,7 @@ export async function fetchExperiments(): Promise<ExperimentSummary[]> {
     const scored = await Promise.allSettled(
       slice.map(async (e) => {
         const win = await getLatestWindowMeasurementsFromInflux(e.experiment_id);
-        const ml = await scoreMeasurements(e.experiment_id, win);
+        const ml = await scoreMeasurements(e.experiment_id, win, false);
         return mergeMlIntoSummary(e, ml);
       })
     );
@@ -46,7 +46,7 @@ export async function fetchExperiments(): Promise<ExperimentSummary[]> {
     return merged.concat(base.slice(max));
   }
 
-  const mlResults = await Promise.allSettled(slice.map((e) => fetchMlForExperimentId(e.experiment_id)));
+  const mlResults = await Promise.allSettled(slice.map((e) => fetchMlForExperimentId(e.experiment_id, false)));
   const merged = slice.map((e, i) => {
     const r = mlResults[i];
     return mergeMlIntoSummary(e, r.status === "fulfilled" ? r.value : null);
@@ -55,7 +55,7 @@ export async function fetchExperiments(): Promise<ExperimentSummary[]> {
   return merged.concat(base.slice(max));
 }
 
-export async function fetchExperimentByIdexport async function fetchExperimentById(experiment_id: string): Promise<Experiment | null> {
+export async function fetchExperimentById(experiment_id: string): Promise<Experiment | null> {
   let exp: Experiment | null;
 
   if (MODE === "mock") exp = getExperimentById(experiment_id);
@@ -73,10 +73,10 @@ export async function fetchExperimentByIdexport async function fetchExperimentBy
     const minutes = Number(process.env.NEXT_PUBLIC_LIVE_SCORE_WINDOW_MINUTES ?? process.env.LIVE_SCORE_WINDOW_MINUTES ?? "5");
     const { getRecentWindowMeasurementsFromInflux } = await import("./influxData");
     const win = await getRecentWindowMeasurementsFromInflux(experiment_id, minutes);
-    const ml = await scoreMeasurements(experiment_id, win);
+    const ml = await scoreMeasurements(experiment_id, win, true);
     return mergeMlIntoExperiment(exp, ml);
   } else {
-    const ml = await fetchMlForExperimentId(experiment_id);
+    const ml = await fetchMlForExperimentId(experiment_id, true);
     return mergeMlIntoExperiment(exp, ml);
   }
 }

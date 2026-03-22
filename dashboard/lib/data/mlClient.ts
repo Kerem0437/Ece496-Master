@@ -1,4 +1,4 @@
-import type { Experiment, ExperimentSummary, MLFlag, Measurement } from "@/lib/types";
+import type { Experiment, ExperimentSummary, FeatureSeriesMap, MLFlag, Measurement } from "@/lib/types";
 
 const ML_URL = process.env.ML_SERVICE_URL ?? "http://127.0.0.1:8000";
 
@@ -7,7 +7,23 @@ type MlResult = {
   anomaly_score?: number;
   ml_flag?: MLFlag;
   ml_timestamp_utc?: string;
-  per_feature?: Record<string, { raw_mse?: number | null; score?: number | null; flag?: MLFlag }>;
+  review_basis?: string;
+  verification_status?: "VERIFIED" | "PENDING";
+  mode_keep?: Record<string, number>;
+  per_feature?: Record<string, {
+    score?: number | null;
+    normal_score?: number | null;
+    strict_score?: number | null;
+    normal_masked_mse?: number | null;
+    strict_masked_mse?: number | null;
+    normal_observed_fraction?: number | null;
+    strict_observed_fraction?: number | null;
+    zero_drop_detected?: boolean | null;
+    jump_ratio?: number | null;
+    jump_score?: number | null;
+    flag?: MLFlag;
+  }>;
+  predicted_series_by_feature?: FeatureSeriesMap | null;
 };
 
 async function safeFetchJson<T>(url: string, init?: RequestInit): Promise<T | null> {
@@ -20,17 +36,15 @@ async function safeFetchJson<T>(url: string, init?: RequestInit): Promise<T | nu
   }
 }
 
-export async function fetchMlForExperimentId(experiment_id: string): Promise<MlResult | null> {
-  return await safeFetchJson<MlResult>(`${ML_URL}/api/ml/${encodeURIComponent(experiment_id)}`);
+export async function fetchMlForExperimentId(experiment_id: string, include_predictions = false): Promise<MlResult | null> {
+  const qs = include_predictions ? "?include_predictions=1" : "";
+  return await safeFetchJson<MlResult>(`${ML_URL}/api/ml/${encodeURIComponent(experiment_id)}${qs}`);
 }
 
-/**
- * LIVE mode path: dashboard already fetched measurements from Influx.
- * We POST the measurement list to ML service for scoring (no DB writes).
- */
-export async function scoreMeasurements(experiment_id: string, measurements: Measurement[]): Promise<MlResult | null> {
+export async function scoreMeasurements(experiment_id: string, measurements: Measurement[], include_predictions = false): Promise<MlResult | null> {
   const payload = {
     experiment_id,
+    include_predictions,
     measurements: measurements.map((m) => ({
       experiment_id: m.experiment_id,
       timestamp_utc: m.timestamp_utc,
@@ -68,5 +82,6 @@ export function mergeMlIntoExperiment(e: Experiment, ml: MlResult | null): Exper
     ml_flag: (ml.ml_flag ?? e.ml_flag),
     ml_timestamp_utc: ml.ml_timestamp_utc ?? e.ml_timestamp_utc,
     per_feature: (ml.per_feature ?? e.per_feature),
+    predicted_series_by_feature: (ml.predicted_series_by_feature ?? e.predicted_series_by_feature),
   };
 }

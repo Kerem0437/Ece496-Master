@@ -16,7 +16,7 @@ export MQTT_TOPIC=demo/496/chat
 export INFLUX_URL=http://192.168.56.110:8086
 export INFLUX_ORG=ECE496
 export INFLUX_BUCKET=capstone
-export INFLUX_TOKEN=REPLACE_WRITE_TOKEN
+export INFLUX_TOKEN=Iu8HJpcELmA79_rBrIPFmCsD6hHb6KzrMDrRiGlq5A6UbTZqVVZBNY2gFvtWpyMw800o4fwz3QdsL_uz8jSeSg==
 
 # HMAC must match publisher
 export MQTT_HMAC_KEY='pi'

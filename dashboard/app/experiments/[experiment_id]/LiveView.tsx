@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Card from "@/components/Card";
 import StatusPill from "@/components/StatusPill";
 import ChartPlaceholder from "@/components/ChartPlaceholder";
-import type { Measurement, MLFlag, PerFeatureMap } from "@/lib/types";
+import type { IntegrityStatus, Measurement, MLFlag, PerFeatureMap } from "@/lib/types";
 
 type MlPayload = {
   ml_version?: string;
@@ -24,8 +24,8 @@ function toPoints(measurements: Measurement[], sensor_type: string) {
 
 export default function LiveView({ experiment_id }: { experiment_id: string }) {
   const chartWindowMin = Number(process.env.NEXT_PUBLIC_LIVE_CHART_WINDOW_MINUTES ?? "2");
-  const scoreWindowMin = Number(process.env.NEXT_PUBLIC_LIVE_SCORE_WINDOW_MINUTES ?? "5");
-  const chartRefreshSec = Number(process.env.NEXT_PUBLIC_LIVE_CHART_REFRESH_SECONDS ?? "60");
+  const scoreWindowMin = Number(process.env.NEXT_PUBLIC_LIVE_SCORE_WINDOW_MINUTES ?? "2");
+  const chartRefreshSec = Number(process.env.NEXT_PUBLIC_LIVE_CHART_REFRESH_SECONDS ?? "120");
   const scoreRefreshSec = Number(process.env.NEXT_PUBLIC_LIVE_SCORE_REFRESH_SECONDS ?? "120");
 
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
@@ -58,13 +58,15 @@ export default function LiveView({ experiment_id }: { experiment_id: string }) {
     refreshMeasurements();
     refreshMl();
 
-    const t1 = setInterval(refreshMeasurements, Math.max(10, chartRefreshSec) * 1000);
-    const t2 = setInterval(refreshMl, Math.max(10, scoreRefreshSec) * 1000);
+    const refreshBoth = () => {
+      refreshMeasurements();
+      refreshMl();
+    };
+    const intervalSec = Math.max(10, Math.min(chartRefreshSec, scoreRefreshSec));
+    const t1 = setInterval(refreshBoth, intervalSec * 1000);
     return () => {
       clearInterval(t1);
-      clearInterval(t2);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [experiment_id]);
 
   const sensorTypes = useMemo(() => {
@@ -72,37 +74,49 @@ export default function LiveView({ experiment_id }: { experiment_id: string }) {
     return Array.from(set);
   }, [measurements]);
 
+  const verificationStatus: IntegrityStatus = ml?.ml_timestamp_utc ? "VERIFIED" : "UNKNOWN";
   const per = ml?.per_feature ?? null;
+  const zeroDropDetected = Object.values(per ?? {}).some((v) => Boolean(v?.zero_drop_detected));
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <Card
         title="Live rolling view"
-        subtitle={`Updates charts every ${chartRefreshSec}s (window=${chartWindowMin}m). Updates ML every ${scoreRefreshSec}s (window=${scoreWindowMin}m).`}
+        subtitle={`Collects a rolling ${chartWindowMin} minute window, archives it to disk, and refreshes both charts and ML every ${chartRefreshSec}s.`}
       >
         <div className="sub" style={{ marginTop: 6 }}>
-          Data source: <span className="mono">live (influx)</span> • ML served by <span className="mono">ml_service</span> (no DB writes)
+          Data source: <span className="mono">live (influx)</span> • ML served by <span className="mono">ml_service</span> (no DB writes) • snapshots archived under <span className="mono">dashboard/live_captures</span>
+        </div>
+        <div className="small" style={{ marginTop: 8 }}>
+          Live protection: if a monitored variable suddenly falls to zero after a stable baseline, the stream is automatically marked suspicious.
         </div>
         {err ? <div className="sub" style={{ color: "#fca5a5" }}>Error: {err}</div> : null}
       </Card>
 
       <Card title="ML status (rolling window)">
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <StatusPill kind="integrity" value={verificationStatus} />
           <StatusPill kind="ml" value={(ml?.ml_flag ?? "UNKNOWN")} />
           <div className="sub">anomaly_score: <span className="mono">{ml?.anomaly_score ?? "—"}</span></div>
           <div className="sub">timestamp: <span className="mono">{ml?.ml_timestamp_utc ?? "—"}</span></div>
         </div>
+        {zeroDropDetected ? (
+          <div className="small" style={{ marginTop: 10, color: "#fcd34d" }}>
+            Zero-drop protection fired: one or more monitored channels abruptly dropped to zero, so the live stream was escalated to suspicious.
+          </div>
+        ) : null}
 
         {per ? (
           <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-            <div className="sub">Per-sensor flags (computed from per-feature reconstruction error):</div>
+            <div className="sub">Per-sensor flags (computed from reconstruction error, jump analysis, and zero-drop protection):</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
               {Object.entries(per).map(([k, v]) => (
                 <div key={k} style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 10 }}>
                   <div className="mono" style={{ fontSize: 13 }}>{k}</div>
-                  <div style={{ marginTop: 6, display: "flex", gap: 10, alignItems: "center" }}>
+                  <div style={{ marginTop: 6, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                     <StatusPill kind="ml" value={(v.flag ?? "UNKNOWN")} />
                     <div className="sub">score: <span className="mono">{(v.score ?? "—") as any}</span></div>
+                    <div className="sub">zero-drop: <span className="mono">{v.zero_drop_detected ? "YES" : "NO"}</span></div>
                   </div>
                 </div>
               ))}

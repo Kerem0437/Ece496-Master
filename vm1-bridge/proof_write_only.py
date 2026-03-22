@@ -5,7 +5,7 @@ import os
 URL=os.environ.get("INFLUX_URL","http://127.0.0.1:8086")
 ORG=os.environ.get("INFLUX_ORG","ECE496")
 BUCKET=os.environ.get("INFLUX_BUCKET","capstone")
-TOKEN=os.environ.get("INFLUX_TOKEN","")
+TOKEN=os.environ.get("INFLUX_TOKEN","Iu8HJpcELmA79_rBrIPFmCsD6hHb6KzrMDrRiGlq5A6UbTZqVVZBNY2gFvtWpyMw800o4fwz3QdsL_uz8jSeSg==")
 
 if not TOKEN:
     raise SystemExit("Missing INFLUX_TOKEN in env.")
