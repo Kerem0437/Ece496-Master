@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ECE496 Poster Figure Generator</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --panel: #ffffff;
+      --border: #d9dde6;
+      --text: #0f172a;
+      --muted: #475569;
+      --navy: #0b3267;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      background: var(--navy);
+      color: white;
+      padding: 20px 28px;
+    }
+    main {
+      padding: 24px;
+      display: grid;
+      gap: 18px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 1px 2px rgba(15,23,42,0.06);
+    }
+    h1, h2, h3, p { margin: 0; }
+    h2 { margin-bottom: 10px; }
+    .sub { color: var(--muted); margin-top: 8px; line-height: 1.45; }
+    .controls { display:flex; gap: 12px; flex-wrap: wrap; align-items:center; margin-bottom: 12px; }
+    select, button {
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: white;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .grid { display:grid; grid-template-columns: repeat(2, minmax(280px,1fr)); gap: 18px; }
+    .wide { grid-column: 1 / -1; }
+    svg { width: 100%; height: auto; display: block; background: white; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; border-bottom: 1px solid var(--border); padding: 8px 6px; font-size: 14px; }
+    .badge { display:inline-block; padding: 4px 8px; border-radius: 999px; font-weight: 700; font-size: 12px; }
+    .NORMAL { background:#dcfce7; color:#166534; }
+    .SUSPICIOUS { background:#fee2e2; color:#991b1b; }
+    .UNKNOWN { background:#e2e8f0; color:#334155; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ECE496 Poster Figure Generator</h1>
+    <p class="sub" style="color:#dbeafe">Simple white-background figure page built from your current demo CSVs and ML summary files.</p>
+  </header>
+  <main>
+    <section class="panel">
+      <div class="controls">
+        <label for="dataset"><strong>Dataset</strong></label>
+        <select id="dataset"></select>
+        <button id="exportOverlay">Download overlay SVG</button>
+        <button id="exportOverview">Download overview SVG</button>
+      </div>
+      <p class="sub">This page is intentionally simple. It gives you clean white-background figures for the poster and keeps the data source in one place.</p>
+    </section>
+
+    <section class="grid">
+      <article class="panel">
+        <h2>Figure A. Sensor overview</h2>
+        <p class="sub">Turbidity and pH from one synchronized run.</p>
+        <div id="overview"></div>
+      </article>
+
+      <article class="panel">
+        <h2>Figure B. LSTM review overlay</h2>
+        <p class="sub">Observed turbidity versus a predicted / smoothed trace for review.</p>
+        <div id="overlay"></div>
+      </article>
+
+      <article class="panel wide">
+        <h2>Figure C. Dashboard / ML summary</h2>
+        <p class="sub">Experiment-level anomaly scores and review flags pulled from the demo dashboard JSON.</p>
+        <div id="summaryChart"></div>
+      </article>
+
+      <article class="panel wide">
+        <h2>Data summary</h2>
+        <table>
+          <thead>
+            <tr><th>Experiment</th><th>Source file</th><th>Anomaly score</th><th>Flag</th></tr>
+          </thead>
+          <tbody id="summaryTable"></tbody>
+        </table>
+      </article>
+    </section>
+  </main>
+
+  <script src="poster_data.js"></script>
+  <script>
+    const data = window.POSTER_DATA;
+    const datasetSelect = document.getElementById('dataset');
+    const datasetNames = Object.keys(data.datasets);
+    datasetNames.forEach(name => {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      datasetSelect.appendChild(option);
+    });
+
+    function scale(values, minPx, maxPx) {
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const range = (max - min) || 1;
+      return values.map(v => maxPx - ((v - min) / range) * (maxPx - minPx));
+    }
+
+    function lineChart({title, series, labels, width=820, height=320}) {
+      const pad = {l: 56, r: 18, t: 18, b: 36};
+      const n = series[0].values.length;
+      const all = series.flatMap(s => s.values);
+      const ys = scale(all, pad.t, height - pad.b);
+      let cursor = 0;
+      const paths = series.map(s => {
+        const local = ys.slice(cursor, cursor + s.values.length);
+        cursor += s.values.length;
+        const pts = local.map((y, i) => {
+          const x = pad.l + (i / Math.max(1, n - 1)) * (width - pad.l - pad.r);
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(' ');
+        return `<polyline fill="none" stroke="${s.color}" stroke-width="2.2" points="${pts}" />`;
+      }).join('');
+
+      const grid = Array.from({length: 5}, (_, i) => {
+        const y = pad.t + i * ((height - pad.t - pad.b) / 4);
+        return `<line x1="${pad.l}" y1="${y}" x2="${width-pad.r}" y2="${y}" stroke="#e2e8f0" stroke-width="1"/>`;
+      }).join('');
+
+      const legend = series.map((s, i) => `
+        <g transform="translate(${pad.l + i*190}, ${height - 8})">
+          <line x1="0" y1="0" x2="24" y2="0" stroke="${s.color}" stroke-width="3" />
+          <text x="30" y="4" font-size="13" fill="#334155">${s.name}</text>
+        </g>`).join('');
+
+      return `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" aria-label="${title}">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff" rx="12" />
+          ${grid}
+          <line x1="${pad.l}" y1="${height-pad.b}" x2="${width-pad.r}" y2="${height-pad.b}" stroke="#94a3b8" />
+          <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${height-pad.b}" stroke="#94a3b8" />
+          ${paths}
+          ${legend}
+        </svg>`;
+    }
+
+    function barChart(rows, width=980, height=320) {
+      const pad = {l: 56, r: 18, t: 18, b: 70};
+      const max = Math.max(1, ...rows.map(r => r.anomaly_score || 0));
+      const barArea = width - pad.l - pad.r;
+      const barWidth = barArea / Math.max(1, rows.length);
+      const bars = rows.map((r, i) => {
+        const x = pad.l + i * barWidth + 10;
+        const h = ((r.anomaly_score || 0) / max) * (height - pad.t - pad.b);
+        const y = height - pad.b - h;
+        const fill = r.ml_flag === 'SUSPICIOUS' ? '#ef4444' : (r.ml_flag === 'NORMAL' ? '#22c55e' : '#94a3b8');
+        return `
+          <g>
+            <rect x="${x}" y="${y}" width="${Math.max(18, barWidth - 20)}" height="${h}" fill="${fill}" rx="6" />
+            <text x="${x + (Math.max(18, barWidth - 20))/2}" y="${y - 6}" text-anchor="middle" font-size="12" fill="#334155">${(r.anomaly_score ?? 0).toFixed(3)}</text>
+            <text x="${x + (Math.max(18, barWidth - 20))/2}" y="${height - pad.b + 16}" text-anchor="middle" font-size="12" fill="#334155">${(r.contaminant_type || r.experiment_id).slice(0, 14)}</text>
+            <text x="${x + (Math.max(18, barWidth - 20))/2}" y="${height - pad.b + 30}" text-anchor="middle" font-size="11" fill="#64748b">${r.ml_flag}</text>
+          </g>`;
+      }).join('');
+      return `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff" rx="12" />
+          <line x1="${pad.l}" y1="${height-pad.b}" x2="${width-pad.r}" y2="${height-pad.b}" stroke="#94a3b8" />
+          <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${height-pad.b}" stroke="#94a3b8" />
+          ${bars}
+        </svg>`;
+    }
+
+    function render() {
+      const key = datasetSelect.value || datasetNames[0];
+      datasetSelect.value = key;
+      const ds = data.datasets[key];
+
+      const overviewSvg = lineChart({
+        title: 'Sensor overview',
+        series: [
+          { name: 'Turbidity voltage (V)', values: ds.turbidity_voltage_V, color: '#2563eb' },
+          { name: 'pH', values: ds.pH, color: '#f97316' },
+        ],
+      });
+
+      const overlaySvg = lineChart({
+        title: 'LSTM overlay',
+        series: [
+          { name: 'Observed turbidity voltage', values: ds.turbidity_voltage_V, color: '#0f766e' },
+          { name: 'Predicted / smoothed trace', values: ds.predicted_turbidity_voltage_V, color: '#dc2626' },
+        ],
+      });
+
+      document.getElementById('overview').innerHTML = overviewSvg;
+      document.getElementById('overlay').innerHTML = overlaySvg;
+      document.getElementById('summaryChart').innerHTML = barChart(data.summary.experiments);
+      document.getElementById('summaryTable').innerHTML = data.summary.experiments.map(r => `
+        <tr>
+          <td>${r.experiment_id}</td>
+          <td>${r.source_file_id || ''}</td>
+          <td>${(r.anomaly_score ?? 0).toFixed(3)}</td>
+          <td><span class="badge ${r.ml_flag}">${r.ml_flag}</span></td>
+        </tr>`).join('');
+
+      document.getElementById('exportOverview').onclick = () => downloadSvg('overview_figure.svg', document.querySelector('#overview svg'));
+      document.getElementById('exportOverlay').onclick = () => downloadSvg('lstm_overlay_figure.svg', document.querySelector('#overlay svg'));
+    }
+
+    function downloadSvg(filename, svgEl) {
+      const blob = new Blob([svgEl.outerHTML], {type: 'image/svg+xml;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    datasetSelect.addEventListener('change', render);
+    render();
+  </script>
+</body>
+</html>
