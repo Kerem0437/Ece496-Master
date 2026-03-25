@@ -16,7 +16,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <div className="brandDot" />
               <div>
                 <div className="brandTitle">Water Dashboard</div>
-                <div className="brandSub">T1–T5 scaffold (mock data)</div>
               </div>
             </div>
 
@@ -27,10 +26,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </header>
 
           <main className="main">{children}</main>
-
-          <footer className="footer">
-            <span>Mock-only • Stop at T5 • Ready for Vercel</span>
-          </footer>
         </div>
       </body>
     </html>

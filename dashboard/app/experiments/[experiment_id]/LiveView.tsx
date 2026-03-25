@@ -90,7 +90,7 @@ export default function LiveView({ experiment_id }: { experiment_id: string }) {
         <div className="small" style={{ marginTop: 8 }}>
           Live protection: if a monitored variable suddenly falls to zero after a stable baseline, the stream is automatically marked suspicious.
         </div>
-        {err ? <div className="sub" style={{ color: "#fca5a5" }}>Error: {err}</div> : null}
+        {err ? <div className="sub" style={{ color: "#b91c1c" }}>Error: {err}</div> : null}
       </Card>
 
       <Card title="ML status (rolling window)">
@@ -101,7 +101,7 @@ export default function LiveView({ experiment_id }: { experiment_id: string }) {
           <div className="sub">timestamp: <span className="mono">{ml?.ml_timestamp_utc ?? "—"}</span></div>
         </div>
         {zeroDropDetected ? (
-          <div className="small" style={{ marginTop: 10, color: "#fcd34d" }}>
+          <div className="small" style={{ marginTop: 10, color: "#92400e" }}>
             Zero-drop protection fired: one or more monitored channels abruptly dropped to zero, so the live stream was escalated to suspicious.
           </div>
         ) : null}
@@ -111,7 +111,7 @@ export default function LiveView({ experiment_id }: { experiment_id: string }) {
             <div className="sub">Per-sensor flags (computed from reconstruction error, jump analysis, and zero-drop protection):</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
               {Object.entries(per).map(([k, v]) => (
-                <div key={k} style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 10 }}>
+                <div key={k} style={{ border: "1px solid rgba(15,23,42,0.12)", borderRadius: 12, padding: 10 }}>
                   <div className="mono" style={{ fontSize: 13 }}>{k}</div>
                   <div style={{ marginTop: 6, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                     <StatusPill kind="ml" value={(v.flag ?? "UNKNOWN")} />

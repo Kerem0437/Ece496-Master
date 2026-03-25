@@ -159,19 +159,6 @@ export default function ExperimentsClient({ experiments, mode }: Props) {
         </table>
       </div>
 
-      <Card title="Notes" subtitle="Why this structure exists (future-proofing)">
-        <ul style={{ margin: 0, paddingLeft: 18, color: "#94a3b8", lineHeight: 1.6 }}>
-          <li>
-            This page uses <span className="mono">ExperimentSummary</span> objects produced by the mock data layer.
-          </li>
-          <li>
-            In T6+, you can keep this UI and replace <span className="mono">getExperiments()</span> with a real query.
-          </li>
-          <li>
-            Filters are client-side for now; later can become query params for server-side filtering.
-          </li>
-        </ul>
-      </Card>
     </div>
   );
 }

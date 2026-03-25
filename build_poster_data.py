@@ -7,7 +7,7 @@ from pathlib import Path
 from statistics import mean
 
 ROOT = Path(__file__).resolve().parent
-REPO = ROOT / 'Ece496-Master'
+REPO = ROOT 
 
 
 def moving_average(values: list[float], window: int = 9) -> list[float]:

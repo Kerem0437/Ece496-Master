@@ -65,8 +65,8 @@ export default function ChartPlaceholder({
           viewBox={`0 0 ${width} ${height}`}
           style={{
             borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "rgba(255,255,255,0.02)"
+            border: "1px solid rgba(15,23,42,0.12)",
+            background: "#ffffff"
           }}
         >
           {/* grid lines */}
@@ -79,7 +79,7 @@ export default function ChartPlaceholder({
                 y1={y}
                 x2={width - padding}
                 y2={y}
-                stroke="rgba(255,255,255,0.06)"
+                stroke="rgba(15,23,42,0.08)"
               />
             );
           })}
@@ -93,10 +93,10 @@ export default function ChartPlaceholder({
           />
 
           {/* axes labels (minimal) */}
-          <text x={padding} y={14} fontSize="12" fill="rgba(148,163,184,0.9)">
+          <text x={padding} y={14} fontSize="12" fill="rgba(71,85,105,0.9)">
             y: value ({unit})
           </text>
-          <text x={padding} y={height - 6} fontSize="12" fill="rgba(148,163,184,0.9)">
+          <text x={padding} y={height - 6} fontSize="12" fill="rgba(71,85,105,0.9)">
             x: time_offset_seconds (min {minX} / max {maxX})
           </text>
         </svg>

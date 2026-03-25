@@ -27,7 +27,7 @@ export default function StatusPill({
         border: `1px solid ${border}`,
         background: bg,
         fontSize: 12,
-        color: "#e5e7eb",
+        color: "#0f172a",
         letterSpacing: 0.2
       }}
       className="mono"

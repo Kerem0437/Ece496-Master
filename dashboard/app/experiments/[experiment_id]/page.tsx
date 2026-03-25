@@ -139,7 +139,7 @@ export default async function ExperimentDetailPage({
               </div>
               <div style={{ display: "grid", gap: 8 }}>
                 {Object.entries(experiment.per_feature).map(([feature, value]) => (
-                  <div key={feature} style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1fr) auto auto auto auto", gap: 10, alignItems: "center", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 10 }}>
+                  <div key={feature} style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1fr) auto auto auto auto", gap: 10, alignItems: "center", border: "1px solid rgba(15,23,42,0.12)", borderRadius: 12, padding: 10 }}>
                     <div className="mono">{feature}</div>
                     <StatusPill kind="ml" value={value.flag ?? "UNKNOWN"} />
                     <div className="small">normal: <span className="mono">{value.normal_score ?? "—"}</span> • strict: <span className="mono">{value.strict_score ?? "—"}</span></div>
@@ -256,7 +256,7 @@ export default async function ExperimentDetailPage({
               ))}
               {shown.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ padding: 18, color: "#94a3b8" }}>
+                  <td colSpan={7} style={{ padding: 18, color: "#475569" }}>
                     No measurements found.
                   </td>
                 </tr>
